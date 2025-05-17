@@ -1,0 +1,11 @@
+[package]
+name = "rusty_ledger"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.4"
+tokio = { version="1.45.0", features=["full"] }
+dotenv = "0.15.0"
+anyhow = "1.0.98"
+sqlx = { version="0.8.5", features=["postgres", "runtime-tokio", "tls-native-tls"] }

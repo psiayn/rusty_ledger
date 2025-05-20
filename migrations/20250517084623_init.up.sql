@@ -2,7 +2,7 @@
 
 -- Users table
 CREATE TABLE users (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -10,10 +10,9 @@ CREATE TABLE users (
 
 -- Accounts table
 CREATE TABLE accounts (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    account_number TEXT UNIQUE NOT NULL,
-    currency_code CHAR(3) NOT NULL DEFAULT 'USD',
+    account_type TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -26,28 +25,11 @@ CREATE TABLE account_balances (
 
 -- Transactions table
 CREATE TABLE transactions (
-    id UUID PRIMARY KEY,
-    from_account_id UUID REFERENCES accounts(id),
-    to_account_id UUID REFERENCES accounts(id),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    from_account_id UUID NOT NULL REFERENCES accounts(id),
+    to_account_id UUID NOT NULL REFERENCES accounts(id),
     amount NUMERIC(20, 4) NOT NULL CHECK (amount > 0),
-    currency_code CHAR(3) NOT NULL,
-    transaction_type TEXT NOT NULL CHECK (
-        transaction_type IN ('deposit', 'withdrawal', 'transfer')
-    ),
-    status TEXT NOT NULL CHECK (
-        status IN ('pending', 'authorized', 'settled', 'failed', 'reversed')
-    ),
-    reference TEXT,
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    settled_at TIMESTAMPTZ
-);
-
--- Reversal transactions reference the original one
-ALTER TABLE transactions
-ADD COLUMN reversed_transaction_id UUID REFERENCES transactions(id),
-ADD CONSTRAINT no_self_reverse CHECK (
-    reversed_transaction_id IS NULL OR reversed_transaction_id != id
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE audit_logs (
@@ -60,46 +42,3 @@ CREATE TABLE audit_logs (
     after_state JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE exchange_rates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    base_currency CHAR(3) NOT NULL,
-    quote_currency CHAR(3) NOT NULL,
-    rate NUMERIC(20, 8) NOT NULL CHECK (rate > 0),
-    effective_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE FUNCTION update_account_balances() RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.transaction_type = 'deposit' THEN
-        UPDATE account_balances
-        SET balance = balance + NEW.amount,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE account_id = NEW.to_account_id;
-
-    ELSIF NEW.transaction_type = 'withdrawal' THEN
-        UPDATE account_balances
-        SET balance = balance - NEW.amount,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE account_id = NEW.from_account_id;
-
-    ELSIF NEW.transaction_type = 'transfer' THEN
-        UPDATE account_balances
-        SET balance = balance - NEW.amount,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE account_id = NEW.from_account_id;
-
-        UPDATE account_balances
-        SET balance = balance + NEW.amount,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE account_id = NEW.to_account_id;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_update_balances
-AFTER INSERT ON transactions
-FOR EACH ROW
-EXECUTE FUNCTION update_account_balances();

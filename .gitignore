@@ -20,3 +20,5 @@ target/
 
 /target
 .env
+
+bacon.toml

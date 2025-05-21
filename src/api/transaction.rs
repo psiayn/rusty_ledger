@@ -58,9 +58,9 @@ async fn update_balance(trans: CreateTransReq, pool: Pool<Postgres>) {
             new_to_acc_balance,
             to_balance.account_id
         ).fetch_one(&pool).await.unwrap();
-        println!("from_balance = {new_from_balance}, to_balance = {new_to_balance}, amount = {}, failed lil bro", trans.amount.to_string());
+        println!("from_balance = {new_from_balance}, to_balance = {new_to_balance}, amount = {}", trans.amount.to_string());
     } else {
-        println!("from_balance = {new_from_acc_balance}, to_balance = {new_to_acc_balance}, amount = {}, failed lil bro", trans.amount.to_string());
+        println!("from_balance = {new_from_acc_balance}, to_balance = {new_to_acc_balance}, amount = {}", trans.amount.to_string());
     }
     // TODO: else throw error
 
@@ -94,12 +94,13 @@ pub async fn get_all(State(state): State<state::AppState>) -> Json<Vec<Transacti
     Json(res)
 }
 
-pub async fn query(State(state): State<state::AppState>) -> Json<Transaction> {
+pub async fn query(State(state): State<state::AppState>, Query(req): Query<GetTransReq>) -> Json<Transaction> {
     let pool = state.db;
 
     let res = sqlx::query_as!(
         Transaction,
-        "SELECT * FROM transactions",
+        "SELECT * FROM transactions where from_account_id = $1 OR to_account_id = $1",
+        req.account_id
     ).fetch_one(&pool).await.unwrap();
 
     Json(res)

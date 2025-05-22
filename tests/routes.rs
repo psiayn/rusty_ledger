@@ -427,10 +427,19 @@ async fn test_query_transactions(pool: PgPool) {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&body).unwrap();
     
-    assert_eq!(json["from_account_id"], from_account_id.to_string());
-    assert_eq!(json["to_account_id"], to_account_id.to_string());
+    // The result is now an array of transactions
+    assert!(!json.as_array().unwrap().is_empty(), "Transaction array should not be empty");
+    
+    // Find the transaction we just created
+    let found_transaction = json.as_array().unwrap().iter().find(|&t| {
+        t["from_account_id"] == from_account_id.to_string() && 
+        t["to_account_id"] == to_account_id.to_string()
+    }).expect("Transaction not found in response");
+    
+    assert_eq!(found_transaction["from_account_id"], from_account_id.to_string());
+    assert_eq!(found_transaction["to_account_id"], to_account_id.to_string());
     // Check that the amount starts with the expected value, ignoring exact decimal formatting
-    assert!(json["amount"].as_str().unwrap().starts_with("150"));
+    assert!(found_transaction["amount"].as_str().unwrap().starts_with("150"));
 }
 
 // Test unauthorized access

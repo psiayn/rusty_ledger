@@ -61,40 +61,67 @@ struct Claims {
 }
 
 #[axum::debug_handler]
-pub async fn register(State(state): State<state::AppState>, Json(req): Json<UserReq>) -> Json<CreateUserRes> {
+pub async fn register(
+    State(state): State<state::AppState>, 
+    Json(req): Json<UserReq>
+) -> Result<Json<CreateUserRes>, (StatusCode, String)> {
     let pool = state.db;
 
-    let password_hash = hash(req.password.as_bytes(), DEFAULT_COST).unwrap();
+    // Check if the email already exists
+    let existing_user = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)",
+        req.email
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
+
+    if existing_user.unwrap_or(false) {
+        return Err((StatusCode::CONFLICT, format!("User with email {} already exists", req.email)));
+    }
+
+    let password_hash = hash(req.password.as_bytes(), DEFAULT_COST)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to hash password: {}", e)))?;
 
     let user_id = sqlx::query_scalar!(
         r#"INSERT INTO users (full_name, email, password_hash) VALUES ($1, $2, $3) returning id"#,
         req.full_name,
         req.email,
         password_hash
-    ).fetch_one(&pool).await.unwrap();
+    ).fetch_one(&pool).await
+     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create user: {}", e)))?;
+    
     println!("user_id = {user_id}");
+    
     let account_id = sqlx::query_scalar!(
         "INSERT INTO accounts (user_id, account_type) VALUES ($1, $2) returning id",
         user_id,
         req.account_type.to_string()
-    ).fetch_one(&pool).await.unwrap();
+    ).fetch_one(&pool).await
+     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create account: {}", e)))?;
+    
     println!("account_id = {account_id}");
+    
     let balance = sqlx::query_scalar!(
         "INSERT INTO account_balances (account_id) VALUES ($1) returning balance",
         account_id
-    ).fetch_one(&pool).await.unwrap();
+    ).fetch_one(&pool).await
+     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create account balance: {}", e)))?;
+    
     println!("balance = {balance}");
 
-    let token = generate_jwt_token(user_id).unwrap();
+    let token = generate_jwt_token(user_id)
+        .map_err(|e| (e, "Failed to generate authentication token".to_string()))?;
+    
     let res = CreateUserRes {
-        account_id: account_id,
+        account_id,
         full_name: req.full_name,
         email: req.email,
         account_type: req.account_type,
-        token: token
+        token
     };
 
-    Json(res)
+    Ok(Json(res))
 }
 
 fn generate_jwt_token(user_id: Uuid) -> Result<String, StatusCode> {
@@ -104,13 +131,20 @@ fn generate_jwt_token(user_id: Uuid) -> Result<String, StatusCode> {
         exp: expiration.unix_timestamp() as usize,
     };
 
-    let secret_key = std::env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY is not defined");
+    let secret_key = std::env::var("JWT_SECRET_KEY")
+        .map_err(|_| {
+            eprintln!("JWT_SECRET_KEY environment variable not set");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let token = encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret_key.as_bytes())
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    ).map_err(|e| {
+        eprintln!("Failed to encode JWT token: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(token)
 }
@@ -120,7 +154,7 @@ fn generate_jwt_token(user_id: Uuid) -> Result<String, StatusCode> {
 pub async fn login(
     State(state): State<state::AppState>,
     Json(req): Json<LoginReq>
-) -> Result<Json<LoginRes>, StatusCode> {
+) -> Result<Json<LoginRes>, (StatusCode, String)> {
     let pool = state.db;
 
     // Get user from database
@@ -130,16 +164,18 @@ pub async fn login(
     )
     .fetch_optional(&pool)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::UNAUTHORIZED)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?
+    .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".to_string()))?;
 
     // Verify password
-    if !verify(&req.password, &user.password_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
-        return Err(StatusCode::UNAUTHORIZED);
+    if !verify(&req.password, &user.password_hash)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to verify password: {}", e)))? {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".to_string()));
     }
 
     // Create JWT token
-    let token = generate_jwt_token(user.id)?;
+    let token = generate_jwt_token(user.id)
+        .map_err(|e| (e, "Failed to generate authentication token".to_string()))?;
 
     let user = User {
         id: user.id,
@@ -151,16 +187,34 @@ pub async fn login(
     let account_id = sqlx::query_scalar!(
         "SELECT id FROM accounts WHERE user_id = $1",
         user.id
-    ).fetch_one(&pool).await.unwrap();
+    ).fetch_one(&pool).await
+     .map_err(|e| match e {
+        sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, format!("No account found for user {}", user.id)),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch account: {}", e))
+     })?;
 
-    Ok(Json(LoginRes { token, account_id: account_id.to_string(), full_name: user.full_name }))
+    Ok(Json(LoginRes { 
+        token, 
+        account_id: account_id.to_string(), 
+        full_name: user.full_name 
+    }))
 }
 
 pub async fn update_profile(
     State(state): State<state::AppState>,
     Json(req): Json<UpdateProfileReq>
-) -> Result<Json<CreateUserRes>, StatusCode> {
+) -> Result<Json<CreateUserRes>, (StatusCode, String)> {
     let pool = state.db;
+
+    // At least one field must be provided for update
+    if req.full_name.is_none() && req.email.is_none() && req.password.is_none() && req.account_type.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "At least one field must be provided for update".to_string()));
+    }
+
+    // Check if email exists
+    if req.email.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "Email is required to identify the user".to_string()));
+    }
 
     // Get current user data
     let current_user = sqlx::query!(
@@ -169,13 +223,17 @@ pub async fn update_profile(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, format!("User with email {} not found", req.email.as_ref().unwrap())),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
+    })?;
 
     // Update only provided fields
     let new_name = req.full_name.unwrap_or(current_user.full_name);
     let new_email = req.email.unwrap_or(current_user.email);
     let new_password_hash = if let Some(new_password) = req.password {
-        hash(&new_password, DEFAULT_COST).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        hash(&new_password, DEFAULT_COST)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to hash password: {}", e)))?
     } else {
         current_user.password_hash
     };
@@ -197,16 +255,51 @@ pub async fn update_profile(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update user: {}", e)))?;
 
-    let token = generate_jwt_token(current_user.id).unwrap();
+    let token = generate_jwt_token(current_user.id)
+        .map_err(|e| (e, "Failed to generate authentication token".to_string()))?;
+
+    // Get account type
+    let account_type = if let Some(new_type) = req.account_type {
+        // Update account type if provided
+        sqlx::query!(
+            "UPDATE accounts SET account_type = $1 WHERE user_id = $2",
+            new_type.to_string(),
+            current_user.id
+        )
+        .execute(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update account type: {}", e)))?;
+        
+        new_type
+    } else {
+        // Get current account type
+        let account_type_str = sqlx::query_scalar!(
+            "SELECT account_type FROM accounts WHERE user_id = $1",
+            current_user.id
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to fetch account type: {}", e)))?;
+        
+        match account_type_str.as_str() {
+            "savings" => Types::Savings,
+            "current" => Types::Current,
+            "salary" => Types::Salary,
+            "fd" => Types::FD,
+            "rd" => Types::RD,
+            _ => Types::Savings // Default to Savings if unknown
+        }
+    };
 
     let res = CreateUserRes {
         account_id: current_user.id,
         full_name: updated_user.full_name,
         email: updated_user.email,
-        account_type: Types::Savings,
-        token: token
+        account_type,
+        token
     };
+    
     Ok(Json(res))
 }

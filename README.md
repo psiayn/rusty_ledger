@@ -1,6 +1,18 @@
 # Rusty Ledger
 
-A Rust-based financial ledger application.
+A Rust-based backend banking application with a RESTful API for managing transactions, user accounts, and balances.
+
+## Features
+
+- User authentication with JWT
+- Transaction management
+- Account balance tracking
+- Query functionality for transactions
+- PostgreSQL database for persistence
+
+## API Documentation
+
+See [API.md](./API.md) for detailed documentation of all endpoints.
 
 ## Running the Application
 
@@ -42,4 +54,25 @@ sqlx migrate run
 
 # Run the application
 cargo run
-``` 
+```
+
+### Project Structure
+
+- `src/api/` - API route handlers
+  - `user.rs` - User registration, login, and profile management
+  - `account.rs` - Account balance operations
+  - `transaction.rs` - Transaction creation and querying
+- `src/middleware/` - Application middleware (authentication)
+- `migrations/` - Database migration files
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+See the [LICENSE](LICENSE) file for details. 

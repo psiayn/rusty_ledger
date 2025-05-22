@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_balances (account_id) VALUES ($1) returning balance",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "balance",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2e45d71a6fc7f7800f428d5fc5c68cefd9b49d97e8e5deba6bc22ba07233bfcc"
+}

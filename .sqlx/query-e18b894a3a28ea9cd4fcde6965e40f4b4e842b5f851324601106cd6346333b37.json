@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT account_id, balance FROM account_balances where account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "balance",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e18b894a3a28ea9cd4fcde6965e40f4b4e842b5f851324601106cd6346333b37"
+}

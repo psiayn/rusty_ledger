@@ -3,16 +3,28 @@
 services:
 
   db:
-    image: postgres
+    image: postgres:15
     restart: always
     # set shared memory limit when using docker compose
     shm_size: 128mb
-    # or set shared memory limit when deploy via swarm stack
-    #volumes:
-    #  - type: tmpfs
-    #    target: /dev/shm
-    #    tmpfs:
-    #      size: 134217728 # 128*2^20 bytes = 128Mb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: example
+      POSTGRES_DB: rusty_ledger
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://postgres:example@db:5432/rusty_ledger
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-default_dev_secret_please_change_in_production}
+
+volumes:
+  postgres_data:

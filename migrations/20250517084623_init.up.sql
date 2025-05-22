@@ -2,7 +2,7 @@
 
 -- Users table
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -10,7 +10,7 @@ CREATE TABLE users (
 
 -- Accounts table
 CREATE TABLE accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     account_type TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -25,7 +25,7 @@ CREATE TABLE account_balances (
 
 -- Transactions table
 CREATE TABLE transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     from_account_id UUID NOT NULL REFERENCES accounts(id),
     to_account_id UUID NOT NULL REFERENCES accounts(id),
     amount NUMERIC(20, 4) NOT NULL CHECK (amount > 0),
@@ -33,7 +33,7 @@ CREATE TABLE transactions (
 );
 
 CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_type TEXT NOT NULL,            -- e.g., 'user', 'account', 'transaction'
     entity_id UUID NOT NULL,
     operation TEXT NOT NULL,              -- e.g., 'insert', 'update', 'delete'

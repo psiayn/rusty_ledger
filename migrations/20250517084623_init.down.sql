@@ -1,7 +1,4 @@
 -- Add down migration script here
--- drop triggers
-DROP TRIGGER IF EXISTS trg_update_balances ON transactions;
-
 -- drop functions
 DROP FUNCTION IF EXISTS update_account_balances;
 

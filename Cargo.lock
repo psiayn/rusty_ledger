@@ -1406,6 +1406,7 @@ dependencies = [
  "bcrypt",
  "bigdecimal",
  "dotenv",
+ "http-body-util",
  "jsonwebtoken",
  "rand 0.9.1",
  "serde",
@@ -1413,6 +1414,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "uuid",
 ]
 

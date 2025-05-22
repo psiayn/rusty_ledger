@@ -37,7 +37,8 @@ pub struct CreateUserRes {
     account_id: Uuid,
     full_name: String,
     email: String,
-    account_type: Types
+    account_type: Types,
+    token: String
 }
 
 #[derive(Serialize, Deserialize)]
@@ -84,15 +85,36 @@ pub async fn register(State(state): State<state::AppState>, Json(req): Json<User
     ).fetch_one(&pool).await.unwrap();
     println!("balance = {balance}");
 
+    let token = generate_jwt_token(user_id).unwrap();
     let res = CreateUserRes {
         account_id: account_id,
         full_name: req.full_name,
         email: req.email,
-        account_type: req.account_type
+        account_type: req.account_type,
+        token: token
     };
 
     Json(res)
 }
+
+fn generate_jwt_token(user_id: Uuid) -> Result<String, StatusCode> {
+    let expiration = time::OffsetDateTime::now_utc() + time::Duration::days(7);
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp: expiration.unix_timestamp() as usize,
+    };
+
+    let secret_key = std::env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY is not defined");
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret_key.as_bytes())
+    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(token)
+}
+
 
 #[axum::debug_handler]
 pub async fn login(
@@ -117,19 +139,7 @@ pub async fn login(
     }
 
     // Create JWT token
-    let expiration = time::OffsetDateTime::now_utc() + time::Duration::days(7);
-    let claims = Claims {
-        sub: user.id.to_string(),
-        exp: expiration.unix_timestamp() as usize,
-    };
-
-    let secret_key = std::env::var("JWT_SECRET_KEY").expect("JWT_SECRET_KEY is not defined");
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret_key.as_bytes())
-    ).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = generate_jwt_token(user.id)?;
 
     let user = User {
         id: user.id,
@@ -189,11 +199,14 @@ pub async fn update_profile(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let token = generate_jwt_token(current_user.id).unwrap();
+
     let res = CreateUserRes {
         account_id: current_user.id,
         full_name: updated_user.full_name,
         email: updated_user.email,
-        account_type: Types::Savings
+        account_type: Types::Savings,
+        token: token
     };
     Ok(Json(res))
 }
